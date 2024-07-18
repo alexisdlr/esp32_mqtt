@@ -1,6 +1,5 @@
 
-#define AWS_IOT_PUBLISH_TOPIC "esp32/pub"
-#define AWS_IOT_SUBSCRIBE_TOPIC "esp32/sub"
+#define AWS_IOT_SUBSCRIBE_TOPIC "esp32/config"
 #define AWS_TOPIC_VRMS "esp32/vrms"
 #define AWS_TOPIC_PR "esp32/potencia_real"
 #define AWS_TOPIC_APAR "esp32/potencia_aparente"
@@ -115,6 +114,8 @@ void connectAWS()
 
   // Subscribe to a topic
   clientMqtt.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
+  Serial.print("Subscribed to: ");
+  Serial.println(AWS_IOT_SUBSCRIBE_TOPIC);
 
   Serial.println("AWS IoT Connected!");
 }
@@ -698,6 +699,7 @@ void loop()
   {
     reconnect();
   }
+  clientMqtt.loop();
   delay(5000);
   duerme_sensor();
 }
