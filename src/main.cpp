@@ -35,55 +35,56 @@ SSLClientESP32 ssl_client(&gsmClient);
 
 PubSubClient clientMqtt(ssl_client);
 
-TinyGsmClient base_client1(modem, 1);
-TinyGsmClient base_client2(modem, 2);
-TinyGsmClient base_client3(modem, 3);
-TinyGsmClient base_client4(modem, 4);
-TinyGsmClient base_client5(modem, 5);
-TinyGsmClient base_client6(modem, 6);
-TinyGsmClient base_client7(modem, 7);
-TinyGsmClient base_client8(modem, 8);
-
-SSLClient secure_layer1(&base_client1);
-SSLClient secure_layer2(&base_client2);
-SSLClient secure_layer3(&base_client3);
-SSLClient secure_layer4(&base_client4);
-SSLClient secure_layer5(&base_client5);
-SSLClient secure_layer6(&base_client6);
-SSLClient secure_layer7(&base_client7);
-SSLClient secure_layer8(&base_client8);
-
-HttpClient client1 = HttpClient(secure_layer1, server, port);
-HttpClient client2 = HttpClient(secure_layer2, server, port);
-HttpClient client3 = HttpClient(secure_layer3, server, port);
-HttpClient client4 = HttpClient(secure_layer4, server, port);
-HttpClient client5 = HttpClient(secure_layer5, server, port);
-HttpClient client6 = HttpClient(secure_layer6, server, port);
-HttpClient client7 = HttpClient(secure_layer7, server, port);
-HttpClient client8 = HttpClient(secure_layer8, server, port);
-
-void light_sleep(uint32_t sec)
-{
-  esp_sleep_enable_timer_wakeup(sec * 1000000ULL);
-  esp_light_sleep_start();
-}
-
 void messageHandler(char *topic, byte *payload, unsigned int length)
 {
-  JsonDocument doc;
-  deserializeJson(doc, (const char *)payload, length);
-  // Maneja el mensaje recibido
   SerialMon.print("Mensaje recibido en el topic: ");
   SerialMon.println(topic);
   SerialMon.print("Mensaje: ");
-  serializeJson(doc, SerialMon);
+  for (unsigned int i = 0; i < length; i++)
+  {
+    SerialMon.print((char)payload[i]);
+  }
   SerialMon.println();
+
+  JsonDocument doc;
+  deserializeJson(doc, payload);
+
+  if (!doc.isNull())
+  {
+    if (String(topic) == AWS_IOT_SUBSCRIBE_TOPIC)
+    {
+        delayvalue = doc["delayvalue"];
+        factor_calib_I = doc["factor_calib_I"];
+        factor_calib_V = doc["factor_calib_V"];
+        activo = doc["activo"];
+        offset = doc["offset"];
+
+        DBG("--> delay = ", delayvalue);
+        DBG("--> factor_calib_I = ", factor_calib_I);
+        DBG("--> factor_calib_V = ", factor_calib_V);
+        DBG("--> activo = ", activo);
+        DBG("--> offset = ", offset);
+
+        // Aplicar los valores de calibración
+        emon1.current(32, factor_calib_I);
+        emon2.current(33, factor_calib_I);
+        emon3.current(34, factor_calib_I);
+        emon1.voltage(14, factor_calib_V, 1.5);
+        emon2.voltage(13, factor_calib_V, 1.5);
+        emon3.voltage(12, factor_calib_V, 1.5);
+    }
+  }
+  else
+  {
+    SerialMon.println("Error al analizar la respuesta JSON.");
+  }
 }
 
 void connectAWS()
 {
 
   SerialMon.println("Setting up SSL certificates");
+
   ssl_client.setCACert(AWS_CERT_CA);
   ssl_client.setCertificate(AWS_CERT_CRT);
   ssl_client.setPrivateKey(AWS_CERT_PRIVATE);
@@ -124,19 +125,7 @@ void reconnect()
 {
   while (!clientMqtt.connected())
   {
-
-    if (clientMqtt.connect(THINGNAME))
-    {
-      SerialMon.println("conectado");
-      clientMqtt.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
-    }
-    else
-    {
-      SerialMon.print("falló, rc=");
-      SerialMon.print(clientMqtt.state());
-      SerialMon.println(" ; intentando nuevamente en 5 segundos");
-      delay(5000);
-    }
+    connectAWS();
   }
 }
 
@@ -165,117 +154,99 @@ void publishToMQTT(const char *topic, JsonDocument &doc)
     reconnect(); // Reconnect to MQTT if not connected
   }
 }
-void buildJsonVrms(JsonDocument &doc, 
+void buildJsonVrms(JsonDocument &doc,
                    String id_Irms1, String Irms1, String id_Irms2, String Irms2, String id_Irms3, String Irms3,
-                   String id_Vrms1, String Vrms1, String id_Vrms2, String Vrms2, String id_Vrms3, String Vrms3) {
-    doc["id_sensor"] = id_sensor;
+                   String id_Vrms1, String Vrms1, String id_Vrms2, String Vrms2, String id_Vrms3, String Vrms3)
+{
+  doc["id_sensor"] = id_sensor;
 
-    JsonObject json_Irms1 = doc[id_Irms1].to<JsonObject>();
-    json_Irms1["Irms1"] = Irms1;
+  JsonObject json_Irms1 = doc[id_Irms1].to<JsonObject>();
+  json_Irms1["Irms1"] = Irms1;
 
-    JsonObject json_Irms2 = doc[id_Irms2].to<JsonObject>();
-    json_Irms2["Irms2"] = Irms2;
+  JsonObject json_Irms2 = doc[id_Irms2].to<JsonObject>();
+  json_Irms2["Irms2"] = Irms2;
 
-    JsonObject json_Irms3 = doc[id_Irms3].to<JsonObject>();
-    json_Irms3["Irms3"] = Irms3;
+  JsonObject json_Irms3 = doc[id_Irms3].to<JsonObject>();
+  json_Irms3["Irms3"] = Irms3;
 
-    JsonObject json_Vrms1 = doc[id_Vrms1].to<JsonObject>();
-    json_Vrms1["Vrms1"] = Vrms1;
+  JsonObject json_Vrms1 = doc[id_Vrms1].to<JsonObject>();
+  json_Vrms1["Vrms1"] = Vrms1;
 
-    JsonObject json_Vrms2 = doc[id_Vrms2].to<JsonObject>();
-    json_Vrms2["Vrms2"] = Vrms2;
+  JsonObject json_Vrms2 = doc[id_Vrms2].to<JsonObject>();
+  json_Vrms2["Vrms2"] = Vrms2;
 
-    JsonObject json_Vrms3 = doc[id_Vrms3].to<JsonObject>();
-    json_Vrms3["Vrms3"] = Vrms3;
-
-
+  JsonObject json_Vrms3 = doc[id_Vrms3].to<JsonObject>();
+  json_Vrms3["Vrms3"] = Vrms3;
 }
 
-// void buildJsonVrms(JsonDocument &doc, String id_Irms1, String Irms1, String id_Irms2, String Irms2, String id_Irms3, String Irms3,
-//                    String id_Vrms1, String Vrms1, String id_Vrms2, String Vrms2, String id_Vrms3, String Vrms3)
-// {
-//   doc["id_sensor"] = id_sensor;
+void buildJsonPR(JsonDocument &doc,
+                 String id_Potencia_real_1, String Potencia_real_1,
+                 String id_Potencia_real_2, String Potencia_real_2,
+                 String id_Potencia_real_3, String Potencia_real_3)
+{
+  doc["id_sensor"] = id_sensor;
 
-//   // Irms
-//   doc["id_Irms1"] = id_Irms1;
-//   doc["Irms1"] = Irms1;
-//   doc["id_Irms2"] = id_Irms2;
-//   doc["Irms2"] = Irms2;
-//   doc["id_Irms3"] = id_Irms3;
-//   doc["Irms3"] = Irms3;
+  JsonObject json_Potencia_real_1 = doc[id_Potencia_real_1].to<JsonObject>();
+  json_Potencia_real_1["Potencia_real_1"] = Potencia_real_1;
 
-//   // Vrms
-//   doc["id_Vrms1"] = id_Vrms1;
-//   doc["Vrms1"] = Vrms1;
-//   doc["id_Vrms2"] = id_Vrms2;
-//   doc["Vrms2"] = Vrms2;
-//   doc["id_Vrms3"] = id_Vrms3;
-//   doc["Vrms3"] = Vrms3;
-// }
+  JsonObject json_Potencia_real_2 = doc[id_Potencia_real_2].to<JsonObject>();
+  json_Potencia_real_2["Potencia_real_2"] = Potencia_real_2;
 
-void buildJsonPR(JsonDocument &doc, 
-                 String id_Potencia_real_1, String Potencia_real_1, 
-                 String id_Potencia_real_2, String Potencia_real_2, 
-                 String id_Potencia_real_3, String Potencia_real_3) {
-    doc["id_sensor"] = id_sensor;
-
-    JsonObject json_Potencia_real_1 = doc[id_Potencia_real_1].to<JsonObject>();
-    json_Potencia_real_1["Potencia_real_1"] = Potencia_real_1;
-
-    JsonObject json_Potencia_real_2 = doc[id_Potencia_real_2].to<JsonObject>();
-    json_Potencia_real_2["Potencia_real_2"] = Potencia_real_2;
-
-    JsonObject json_Potencia_real_3 = doc[id_Potencia_real_3].to<JsonObject>();
-    json_Potencia_real_3["Potencia_real_3"] = Potencia_real_3;
+  JsonObject json_Potencia_real_3 = doc[id_Potencia_real_3].to<JsonObject>();
+  json_Potencia_real_3["Potencia_real_3"] = Potencia_real_3;
 }
 
-void buildJsonApar(JsonDocument &doc, 
-                   String id_Potencia_apar_1, String Potencia_apar_1, 
-                   String id_Potencia_apar_2, String Potencia_apar_2, 
-                   String id_Potencia_apar_3, String Potencia_apar_3) {
-    doc["id_sensor"] = id_sensor;
+void buildJsonApar(JsonDocument &doc,
+                   String id_Potencia_apar_1, String Potencia_apar_1,
+                   String id_Potencia_apar_2, String Potencia_apar_2,
+                   String id_Potencia_apar_3, String Potencia_apar_3)
+{
+  doc["id_sensor"] = id_sensor;
 
-    JsonObject json_Potencia_apar_1 = doc[id_Potencia_apar_1].to<JsonObject>();
-    json_Potencia_apar_1["Potencia_apar_1"] = Potencia_apar_1;
+  JsonObject json_Potencia_apar_1 = doc[id_Potencia_apar_1].to<JsonObject>();
+  json_Potencia_apar_1["Potencia_apar_1"] = Potencia_apar_1;
 
-    JsonObject json_Potencia_apar_2 = doc[id_Potencia_apar_2].to<JsonObject>();
-    json_Potencia_apar_2["Potencia_apar_2"] = Potencia_apar_2;
+  JsonObject json_Potencia_apar_2 = doc[id_Potencia_apar_2].to<JsonObject>();
+  json_Potencia_apar_2["Potencia_apar_2"] = Potencia_apar_2;
 
-    JsonObject json_Potencia_apar_3 = doc[id_Potencia_apar_3].to<JsonObject>();
-    json_Potencia_apar_3["Potencia_apar_3"] = Potencia_apar_3;
+  JsonObject json_Potencia_apar_3 = doc[id_Potencia_apar_3].to<JsonObject>();
+  json_Potencia_apar_3["Potencia_apar_3"] = Potencia_apar_3;
 }
 
-void buildJsonPotenciaReact(JsonDocument &doc, 
-                            String id_Potencia_reac_1, String Potencia_reac_1, 
-                            String id_Potencia_reac_2, String Potencia_reac_2, 
-                            String id_Potencia_reac_3, String Potencia_reac_3) {
-    doc["id_sensor"] = id_sensor;
+void buildJsonPotenciaReact(JsonDocument &doc,
+                            String id_Potencia_reac_1, String Potencia_reac_1,
+                            String id_Potencia_reac_2, String Potencia_reac_2,
+                            String id_Potencia_reac_3, String Potencia_reac_3)
+{
+  doc["id_sensor"] = id_sensor;
 
-    JsonObject json_Potencia_reac_1 = doc[id_Potencia_reac_1].to<JsonObject>();
-    json_Potencia_reac_1["Potencia_reac_1"] = Potencia_reac_1;
+  JsonObject json_Potencia_reac_1 = doc[id_Potencia_reac_1].to<JsonObject>();
+  json_Potencia_reac_1["Potencia_reac_1"] = Potencia_reac_1;
 
-    JsonObject json_Potencia_reac_2 = doc[id_Potencia_reac_2].to<JsonObject>();
-    json_Potencia_reac_2["Potencia_reac_2"] = Potencia_reac_2;
+  JsonObject json_Potencia_reac_2 = doc[id_Potencia_reac_2].to<JsonObject>();
+  json_Potencia_reac_2["Potencia_reac_2"] = Potencia_reac_2;
 
-    JsonObject json_Potencia_reac_3 = doc[id_Potencia_reac_3].to<JsonObject>();
-    json_Potencia_reac_3["Potencia_reac_3"] = Potencia_reac_3;
+  JsonObject json_Potencia_reac_3 = doc[id_Potencia_reac_3].to<JsonObject>();
+  json_Potencia_reac_3["Potencia_reac_3"] = Potencia_reac_3;
 }
 
-void buildJsonFact(JsonDocument &doc,  
-                   String id_Fact_potencia_1, String Fact_potencia_1, 
-                   String id_Fact_potencia_2, String Fact_potencia_2, 
-                   String id_Fact_potencia_3, String Fact_potencia_3) {
-    doc["id_sensor"] = id_sensor;
+void buildJsonFact(JsonDocument &doc,
+                   String id_Fact_potencia_1, String Fact_potencia_1,
+                   String id_Fact_potencia_2, String Fact_potencia_2,
+                   String id_Fact_potencia_3, String Fact_potencia_3)
+{
+  doc["id_sensor"] = id_sensor;
 
-    JsonObject json_Fact_potencia_1 = doc[id_Fact_potencia_1].to<JsonObject>();
-    json_Fact_potencia_1["Fact_potencia_1"] = Fact_potencia_1;
+  JsonObject json_Fact_potencia_1 = doc[id_Fact_potencia_1].to<JsonObject>();
+  json_Fact_potencia_1["Fact_potencia_1"] = Fact_potencia_1;
 
-    JsonObject json_Fact_potencia_2 = doc[id_Fact_potencia_2].to<JsonObject>();
-    json_Fact_potencia_2["Fact_potencia_2"] = Fact_potencia_2;
+  JsonObject json_Fact_potencia_2 = doc[id_Fact_potencia_2].to<JsonObject>();
+  json_Fact_potencia_2["Fact_potencia_2"] = Fact_potencia_2;
 
-    JsonObject json_Fact_potencia_3 = doc[id_Fact_potencia_3].to<JsonObject>();
-    json_Fact_potencia_3["Fact_potencia_3"] = Fact_potencia_3;
+  JsonObject json_Fact_potencia_3 = doc[id_Fact_potencia_3].to<JsonObject>();
+  json_Fact_potencia_3["Fact_potencia_3"] = Fact_potencia_3;
 }
+
 void agregar_lecturas(String id_Irms1, String Irms1, String id_Irms2, String Irms2, String id_Irms3, String Irms3,
                       String id_Vrms1, String Vrms1, String id_Vrms2, String Vrms2, String id_Vrms3, String Vrms3,
                       String id_Potencia_real_1, String Potencia_real_1, String id_Potencia_real_2, String Potencia_real_2, String id_Potencia_real_3, String Potencia_real_3,
@@ -300,8 +271,6 @@ void agregar_lecturas(String id_Irms1, String Irms1, String id_Irms2, String Irm
   publishToMQTT(AWS_TOPIC_APAR, doc3);
   publishToMQTT(AWS_TOPIC_POTENCIA_REACTIVA, doc4);
   publishToMQTT(AWS_TOPIC_FACT_POTENCIA, doc5);
-  // publishToMQTT(doc);
-  // publishToMQTT(doc2);
 }
 
 void inicia_modem()
@@ -311,7 +280,21 @@ void inicia_modem()
 
   // Restart takes quite some time
   // To skip it, call init() instead of restart()
+
   DBG("Initializing modem in inicia modem...");
+
+  // POWER_PIN : This pin controls the power supply of the SIM7600
+  pinMode(POWER_PIN, OUTPUT);
+  digitalWrite(POWER_PIN, HIGH);
+
+  // PWR_PIN ： This Pin is the PWR-KEY of the SIM7600
+  // The time of active low level impulse of PWRKEY pin to power on module , type 500 ms
+  pinMode(PWR_PIN, OUTPUT);
+  digitalWrite(PWR_PIN, HIGH);
+  delay(500);
+  digitalWrite(PWR_PIN, LOW);
+  delay(1000);
+
   if (!modem.init())
   {
     DBG("Failed to restart modem, delaying 10s and retrying");
@@ -397,7 +380,6 @@ void inicia_modem()
 void desconecta_modem()
 {
   modem.gprsDisconnect();
-  light_sleep(5);
   if (!modem.isGprsConnected())
   {
     DBG("GPRS disconnected");
@@ -408,82 +390,14 @@ void desconecta_modem()
   }
 }
 
-void duerme_sensor()
-{
-  DBG("Enable deep sleep , Will wake up in", delayvalue, " minutes");
-
-  // Wait moden power off
-  light_sleep(5);
-
-  esp_sleep_enable_timer_wakeup(delayvalue * uS_TO_S_FACTOR * 60);
-  delay(200);
-  esp_deep_sleep_start();
-}
-
 void apaga_modem()
 {
   // Try to power-off (modem may decide to restart automatically)
   // To turn off modem completely, please use Reset/Enable pins
+  modem.gprsDisconnect();
+  delay(500); // Esperar un segundo antes de apagar el módem
   modem.poweroff();
   DBG("Poweroff.");
-}
-
-void obtener_datos_sensor()
-{
-  DBG("Connecting to ", String(server) + String(consultar_datos_sensor));
-  String postData = "id_sensor=" + String(id_sensor);
-
-  client7.beginRequest();
-  client7.post(consultar_datos_sensor);
-  client7.sendHeader("Content-Type", "application/x-www-form-urlencoded");
-  client7.sendHeader("Content-Length", postData.length());
-  client7.sendHeader("User-Agent", "Mantox_IOT--1.0");
-  client7.sendHeader("Connection: close");
-  client7.beginBody();
-  client7.print(postData);
-  client7.endRequest();
-  client7.println();
-
-  int status_code = client7.responseStatusCode();
-  String response = client7.responseBody();
-
-  DBG("Status code: ", status_code);
-  DBG("Response: ", response);
-
-  client7.stop();
-
-  DBG("Asignando a variables: ");
-  JsonDocument json;
-  DeserializationError error = deserializeJson(json, response);
-
-  if (!error)
-  {
-    // voltaje = jsonDocument["voltaje"];
-    delayvalue = json["delay"];
-    factor_calib_I = json["factor_calib_I"];
-    factor_calib_V = json["factor_calib_V"];
-    activo = json["activo"];
-    offset = json["offset"];
-
-    // DBG("--> voltaje = ", voltaje);
-    DBG("--> delay = ", delayvalue);
-    DBG("--> factor_calib_I = ", factor_calib_I);
-    DBG("--> factor_calib_V = ", factor_calib_V);
-    DBG("--> activo = ", activo);
-    DBG("--> offset = ", offset);
-
-    // factor de calibracion= 363
-    emon1.current(32, factor_calib_I);
-    emon2.current(33, factor_calib_I);
-    emon3.current(34, factor_calib_I);
-    emon1.voltage(14, factor_calib_V, 1.5); // Voltage: input pin, calibration, phase_shift
-    emon2.voltage(13, factor_calib_V, 1.5); // Voltage: input pin, calibration, phase_shift
-    emon3.voltage(12, factor_calib_V, 1.5); // Voltage: input pin, calibration, phase_shift
-  }
-  else
-  {
-    DBG("Error al analizar la respuesta JSON.");
-  }
 }
 
 void leer_corriente_voltaje()
@@ -572,35 +486,6 @@ void leer_corriente_voltaje_prueba()
   Potencia_reac_3 = 2233;
 }
 
-void actualiza_datos_sensor()
-{
-
-  DBG("Connecting to ", String(server) + String(actualizar_datos_sensor));
-
-  // Construir los datos para la solicitud POST
-  String postData = "id_sensor=" + String(id_sensor) + "&senal_calidad=" + String(senal_calidad);
-
-  client8.beginRequest();
-  client8.post(actualizar_datos_sensor);
-  client8.sendHeader("Content-Type", "application/x-www-form-urlencoded");
-  client8.sendHeader("Content-Length", postData.length());
-  client8.sendHeader("User-Agent", "Mantox_IOT--1.0");
-
-  client8.sendHeader("Connection: close");
-  client8.beginBody();
-  client8.print(postData);
-  client8.endRequest();
-  client8.println();
-
-  int status_code = client8.responseStatusCode();
-  String response = client8.responseBody();
-
-  DBG("Status code: ", status_code);
-  DBG("Response: ", response);
-
-  client8.stop();
-}
-
 void setup()
 {
   // Set console baud rate
@@ -628,78 +513,118 @@ void setup()
 
   DBG("Wait...");
 
-  delay(3000);
-
   SerialAT.begin(UART_BAUD, SERIAL_8N1, PIN_RX, PIN_TX);
-  secure_layer1.setCACert(root_ca);
-  secure_layer2.setCACert(root_ca);
-  secure_layer3.setCACert(root_ca);
-  secure_layer4.setCACert(root_ca);
-  secure_layer5.setCACert(root_ca);
-  secure_layer6.setCACert(root_ca);
-  secure_layer7.setCACert(root_ca);
-  secure_layer8.setCACert(root_ca);
-
-  // Restart takes quite some time
-  // To skip it, call init() instead of restart()
-  DBG("Initializing modem in setup...");
-  // Salir si no está conectado
-  do
-  {
-    DBG("... not connected");
-    inicia_modem();
-  } while (!modem.isGprsConnected());
-
-  SerialMon.println("Modem initialized");
-  // Configurar certificados SSL
-  connectAWS();
-  SerialMon.println("Setup complete");
 }
+
+bool primeraEjecucion = true;
+
 void loop()
 {
-
-  if (!modem.isGprsConnected())
+  if (primeraEjecucion || millis() - lastMillis >= intervalo)
   {
-    DBG("... not connected");
-    return;
-    // Salir si no está conectado
-  }
+    primeraEjecucion = false;
+    lastMillis = millis();
 
-  DBG("... connected");
-
-  // obtener_datos_sensor();
-  // actualiza_datos_sensor();
-  // tomamos lecturas una vez desconectado el modem
-
-  if (clientMqtt.connected())
-  {
-
-    // AGREGAR ESTA VALIDACION CUANDO SE HAGA LA API DE ACTUALIZAR DATOS SENSOR
-    //  if (activo == 1)
-    //  {
-
-    // }
-    leer_corriente_voltaje_prueba();
-
+    // Conectar a la red y al servidor MQTT
     if (!modem.isGprsConnected())
     {
-      DBG("... not connected");
+      do
+      {
+        DBG("... not connected");
+        inicia_modem();
+      } while (!modem.isGprsConnected());
+    }
+
+    if (!clientMqtt.connected())
+    {
+      reconnect();
+      clientMqtt.subscribe("esp32/config");
+      DBG("Subscribed to in loop: ", "esp32/config");
+      JsonDocument doc;
+      doc["id_sensor"] = id_sensor; // Si id_sensor es un número u otro tipo, conviértelo a String
+
+      publishToMQTT("esp32/id_sensor", doc);
+      DBG("Published to: ", "esp32/id_sensor");
+    }
+
+    // Esperar configuración del sensor
+    configRecibida = false;
+    while (!configRecibida && millis() - lastMillis < intervalo)
+    {
+      clientMqtt.loop();
+      // Verificar si la configuración fue recibida
+      if (activo == 1)
+      {
+        configRecibida = true;
+      }
+    }
+
+    // Desconectar el módem antes de leer los datos del sensor
+    if (configRecibida)
+    {
+      if (clientMqtt.connected())
+      {
+        clientMqtt.disconnect();
+        DBG("MQTT disconnected before turning off modem");
+      }
+      apaga_modem();
+      leer_corriente_voltaje_prueba();
+
+      // Reiniciar módem y reconectar
+      DBG("Reconnecting to the network");
+      modem.restart();
+
+      attempts = 0;
+      while (!modem.isGprsConnected() && attempts < maxAttempts)
+      {
+        inicia_modem();
+        attempts++;
+      }
+
+      if (attempts >= maxAttempts)
+      {
+        DBG("Max attempts reached, restarting modem");
+        modem.restart();
+      }
+
+      // Publicar las lecturas
+      if (modem.isGprsConnected())
+      {
+        connectAWS();
+
+        if (clientMqtt.connected())
+        {
+          agregar_lecturas(id_Irms1, String(Irms1), id_Irms2, String(Irms2), id_Irms3, String(Irms3),
+                           id_Vrms1, String(Vrms1), id_Vrms2, String(Vrms2), id_Vrms3, String(Vrms3),
+                           id_Potencia_real_1, String(Potencia_real_1), id_Potencia_real_2, String(Potencia_real_2), id_Potencia_real_3, String(Potencia_real_3),
+                           id_Potencia_apar_1, String(Potencia_apar_1), id_Potencia_apar_2, String(Potencia_apar_2), id_Potencia_apar_3, String(Potencia_apar_3),
+                           id_Potencia_reac_1, String(Potencia_reac_1), id_Potencia_reac_2, String(Potencia_reac_2), id_Potencia_reac_3, String(Potencia_reac_3),
+                           id_Fact_potencia_1, String(Fact_potencia_1), id_Fact_potencia_2, String(Fact_potencia_2), id_Fact_potencia_3, String(Fact_potencia_3));
+        }
+      }
+      else
+      {
+        DBG("GPRS not connected");
+        attempts = 0;
+        while (!modem.isGprsConnected() && attempts < maxAttempts)
+        {
+          inicia_modem();
+          attempts++;
+        }
+
+        if (attempts >= maxAttempts)
+        {
+          DBG("Max attempts reached, restarting modem");
+          modem.restart();
+        }
+      }
     }
     else
     {
-      agregar_lecturas(id_Irms1, String(Irms1), id_Irms2, String(Irms2), id_Irms3, String(Irms3),
-                       id_Vrms1, String(Vrms1), id_Vrms2, String(Vrms2), id_Vrms3, String(Vrms3),
-                       id_Potencia_real_1, String(Potencia_real_1), id_Potencia_real_2, String(Potencia_real_2), id_Potencia_real_3, String(Potencia_real_3),
-                       id_Potencia_apar_1, String(Potencia_apar_1), id_Potencia_apar_2, String(Potencia_apar_2), id_Potencia_apar_3, String(Potencia_apar_3),
-                       id_Potencia_reac_1, String(Potencia_reac_1), id_Potencia_reac_2, String(Potencia_reac_2), id_Potencia_reac_3, String(Potencia_reac_3),
-                       id_Fact_potencia_1, String(Fact_potencia_1), id_Fact_potencia_2, String(Fact_potencia_2), id_Fact_potencia_3, String(Fact_potencia_3));
+      Serial.println("No se recibió la configuración del sensor.");
     }
   }
-  else
-  {
-    reconnect();
-  }
+
+  // Loop del cliente MQTT para mantener la conexión
   clientMqtt.loop();
-  delay(5000);
-  duerme_sensor();
 }

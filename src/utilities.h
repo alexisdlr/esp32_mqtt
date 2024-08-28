@@ -104,3 +104,10 @@ double Potencia_reac_3 = 0;
 
 String locacion = "";
 int senal_calidad = 0;
+
+const unsigned long intervalo = delayvalue * 60 * 1000; // 5 minutos en milisegundos
+unsigned long lastMillis = 0;
+bool configRecibida = false;
+
+int attempts = 0;
+const int maxAttempts = 10;
