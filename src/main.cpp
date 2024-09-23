@@ -5,6 +5,10 @@
 #define AWS_TOPIC_APAR "esp32/potencia_aparente"
 #define AWS_TOPIC_POTENCIA_REACTIVA "esp32/potencia_reactiva"
 #define AWS_TOPIC_FACT_POTENCIA "esp32/fact_potencia"
+#define AWS_TOPIC_PROMEDIO_VRMS "esp32/promedio_vrms"
+#define AWS_TOPIC_PROMEDIO_IRMS "esp32/promedio_irms"
+#define AWS_TOPIC_ID_SENSOR "esp32/id_sensor"
+#define AWS_TOPIC_SENAL_CALIDAD "esp32/senal_calidad"
 
 #define TINY_GSM_MODEM_SIM7600
 #define SerialMon Serial
@@ -35,6 +39,34 @@ SSLClientESP32 ssl_client(&gsmClient);
 
 PubSubClient clientMqtt(ssl_client);
 
+void resetConfig()
+{
+  delayvalue = 0;
+  factor_calib_I = 0;
+  factor_calib_V = 0;
+  activo = 0;
+  offset = 0;
+  configRecibida = false;
+}
+
+int obtener_porcentaje_senial()
+{
+  // Obtener la calidad de la señal utilizando la función getSignalQuality() del objeto modem
+  int getSignalQuality = modem.getSignalQuality();
+
+  // Verificar si la calidad de la señal es 99 o si el módem no está conectado a la red
+  if (getSignalQuality == 99 || !modem.isNetworkConnected())
+  {
+    // Devolver un porcentaje de señal de 0 en caso de que la calidad sea 99 o el módem no esté conectado
+    return 0;
+  }
+  else
+  {
+    // Mapear la calidad de la señal en un rango de 0 a 31 a un rango de 0 a 100
+    return map(getSignalQuality, 0, 31, 0, 100);
+  }
+}
+
 void messageHandler(char *topic, byte *payload, unsigned int length)
 {
   SerialMon.print("Mensaje recibido en el topic: ");
@@ -53,25 +85,28 @@ void messageHandler(char *topic, byte *payload, unsigned int length)
   {
     if (String(topic) == AWS_IOT_SUBSCRIBE_TOPIC)
     {
-        delayvalue = doc["delayvalue"];
-        factor_calib_I = doc["factor_calib_I"];
-        factor_calib_V = doc["factor_calib_V"];
-        activo = doc["activo"];
-        offset = doc["offset"];
+      delayvalue = doc["delayvalue"];
+      factor_calib_I = doc["factor_calib_I"];
+      factor_calib_V = doc["factor_calib_V"];
+      activo = doc["activo"].as<int>();
+      offset = doc["offset"];
 
-        DBG("--> delay = ", delayvalue);
-        DBG("--> factor_calib_I = ", factor_calib_I);
-        DBG("--> factor_calib_V = ", factor_calib_V);
-        DBG("--> activo = ", activo);
-        DBG("--> offset = ", offset);
+      DBG("--> delay = ", delayvalue);
+      DBG("--> factor_calib_I = ", factor_calib_I);
+      DBG("--> factor_calib_V = ", factor_calib_V);
+      DBG("--> activo = ", activo);
+      DBG("--> offset = ", offset);
 
-        // Aplicar los valores de calibración
-        emon1.current(32, factor_calib_I);
-        emon2.current(33, factor_calib_I);
-        emon3.current(34, factor_calib_I);
-        emon1.voltage(14, factor_calib_V, 1.5);
-        emon2.voltage(13, factor_calib_V, 1.5);
-        emon3.voltage(12, factor_calib_V, 1.5);
+      // Aplicar los valores de calibración
+      emon1.current(32, factor_calib_I);
+      emon2.current(33, factor_calib_I);
+      emon3.current(34, factor_calib_I);
+      emon1.voltage(14, factor_calib_V, 1.5);
+      emon2.voltage(13, factor_calib_V, 1.5);
+      emon3.voltage(12, factor_calib_V, 1.5);
+
+      intervalo = delayvalue * 60 * 1000;
+      SerialMon.println("Nuevo intervalo calculado: " + String(intervalo));
     }
   }
   else
@@ -154,6 +189,7 @@ void publishToMQTT(const char *topic, JsonDocument &doc)
     reconnect(); // Reconnect to MQTT if not connected
   }
 }
+
 void buildJsonVrms(JsonDocument &doc,
                    String id_Irms1, String Irms1, String id_Irms2, String Irms2, String id_Irms3, String Irms3,
                    String id_Vrms1, String Vrms1, String id_Vrms2, String Vrms2, String id_Vrms3, String Vrms3)
@@ -254,6 +290,18 @@ void agregar_lecturas(String id_Irms1, String Irms1, String id_Irms2, String Irm
                       String id_Potencia_reac_1, String Potencia_reac_1, String id_Potencia_reac_2, String Potencia_reac_2, String id_Potencia_reac_3, String Potencia_reac_3,
                       String id_Fact_potencia_1, String Fact_potencia_1, String id_Fact_potencia_2, String Fact_potencia_2, String id_Fact_potencia_3, String Fact_potencia_3)
 {
+
+  float promedioVrms = (Vrms1.toFloat() + Vrms2.toFloat() + Vrms3.toFloat()) / 3;
+  float promedioIrms = (Irms1.toFloat() + Irms2.toFloat() + Irms3.toFloat()) / 3;
+
+  // Publicación de los promedios
+  JsonDocument docPromedio;
+  docPromedio["promedio_vrms"] = promedioVrms;
+  docPromedio["promedio_irms"] = promedioIrms;
+
+  publishToMQTT(AWS_TOPIC_PROMEDIO_VRMS, docPromedio);
+  publishToMQTT(AWS_TOPIC_PROMEDIO_IRMS, docPromedio);
+
   JsonDocument doc;
   JsonDocument doc2;
   JsonDocument doc3;
@@ -441,6 +489,9 @@ void leer_corriente_voltaje()
   Potencia_apar_3 = emon3.apparentPower / 10;
   Fact_potencia_3 = emon3.powerFactor;
   Potencia_reac_3 = sqrt(pow(Potencia_apar_3, 2) - pow(Potencia_real_3, 2));
+
+  float promedioVrms = (Vrms1 + Vrms2 + Vrms3) / 3;
+  float promedioIrms = (Irms1 + Irms2 + Irms3) / 3;
 }
 
 void leer_corriente_voltaje_prueba()
@@ -462,28 +513,28 @@ void leer_corriente_voltaje_prueba()
   emon2.calcVI(6600, 1000);
   emon3.calcVI(6600, 1000);
   // Medir corrientes
-  Irms1 = 230 / 10;
-  Irms2 = 200 / 10;
-  Irms3 = 400 / 10;
+  Irms1 = 24440 / 10;
+  Irms2 = 1232 / 10;
+  Irms3 = 2140 / 10;
 
-  Vrms1 = 9;
-  Vrms2 = 10;
-  Vrms3 = 11;
+  Vrms1 = 24;
+  Vrms2 = 23;
+  Vrms3 = 31;
 
-  Potencia_real_1 = 343 / 10;
-  Potencia_apar_1 = 323 / 10;
-  Fact_potencia_1 = 334;
-  Potencia_reac_1 = 4112 - 3234;
+  Potencia_real_1 = 3221 / 10;
+  Potencia_apar_1 = 122 / 10;
+  Fact_potencia_1 = 3224;
+  Potencia_reac_1 = 4122 - 3234;
 
-  Potencia_real_2 = 330 / 10;
+  Potencia_real_2 = 31230 / 10;
   Potencia_apar_2 = 2330 / 10;
-  Fact_potencia_2 = 230;
-  Potencia_reac_2 = 32;
+  Fact_potencia_2 = 23034;
+  Potencia_reac_2 = 3244;
 
-  Potencia_real_3 = 2 / 10;
-  Potencia_apar_3 = 232 / 10;
-  Fact_potencia_3 = 223;
-  Potencia_reac_3 = 2233;
+  Potencia_real_3 = 232 / 10;
+  Potencia_apar_3 = 23232 / 10;
+  Fact_potencia_3 = 2232112;
+  Potencia_reac_3 = 2232333;
 }
 
 void setup()
@@ -543,8 +594,14 @@ void loop()
       JsonDocument doc;
       doc["id_sensor"] = id_sensor; // Si id_sensor es un número u otro tipo, conviértelo a String
 
-      publishToMQTT("esp32/id_sensor", doc);
-      DBG("Published to: ", "esp32/id_sensor");
+      publishToMQTT(AWS_TOPIC_ID_SENSOR, doc);
+      senal_calidad = obtener_porcentaje_senial();
+      JsonDocument senal_doc;
+      senal_doc["senal_calidad"] = senal_calidad;
+      senal_doc["id_sensor"] = id_sensor; // Si id_sensor es un número u otro tipo, conviértelo a String
+      publishToMQTT(AWS_TOPIC_SENAL_CALIDAD, senal_doc);
+      DBG("Published to: ", AWS_TOPIC_ID_SENSOR);
+      DBG("Pub to", AWS_TOPIC_SENAL_CALIDAD);
     }
 
     // Esperar configuración del sensor
@@ -553,10 +610,13 @@ void loop()
     {
       clientMqtt.loop();
       // Verificar si la configuración fue recibida
-      if (activo == 1)
+      if (activo < 1)
       {
-        configRecibida = true;
+        Serial.println("El sensor no está activo, reiniciando...");
+        lastMillis = millis(); // Reiniciar el contador para volver a esperar un minuto completo
+        continue;              // Reiniciar el loop y esperar la configuración nuevamente
       }
+      configRecibida = true;
     }
 
     // Desconectar el módem antes de leer los datos del sensor
@@ -600,6 +660,15 @@ void loop()
                            id_Potencia_apar_1, String(Potencia_apar_1), id_Potencia_apar_2, String(Potencia_apar_2), id_Potencia_apar_3, String(Potencia_apar_3),
                            id_Potencia_reac_1, String(Potencia_reac_1), id_Potencia_reac_2, String(Potencia_reac_2), id_Potencia_reac_3, String(Potencia_reac_3),
                            id_Fact_potencia_1, String(Fact_potencia_1), id_Fact_potencia_2, String(Fact_potencia_2), id_Fact_potencia_3, String(Fact_potencia_3));
+
+          if (clientMqtt.connected())
+          {
+            clientMqtt.disconnect();
+            DBG("MQTT disconnected after reading published");
+          }
+
+          resetConfig();
+          apaga_modem();
         }
       }
       else

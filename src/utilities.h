@@ -34,16 +34,9 @@
 
 #define GSM_PIN ""
 
-const char apn[] = "internet.itelcel.com"; // Your operator APN
-const char gprsUser[] = "webgprs";
-const char gprsPass[] = "webgprs2002";
-
-// datos HTTP
-const char server[] = "login.mantox.mx";
-const char consultar_datos_sensor[] = "/prueba_sensor_corriente/controller/buscar/datos_sensor/";
-const char agregar_lecturas_sensor[] = "/prueba_sensor_corriente/controller/insertar/metrica_sensor2/";
-const char actualizar_datos_sensor[] = "/prueba_sensor_corriente/controller/actualizar/datos_sensor2/";
-const int port = 443;
+const char apn[] = "emnify"; // Your operator APN
+const char gprsUser[] = "";
+const char gprsPass[] = "";
 
 const char *id_sensor = "1";
 
@@ -105,7 +98,7 @@ double Potencia_reac_3 = 0;
 String locacion = "";
 int senal_calidad = 0;
 
-const unsigned long intervalo = delayvalue * 60 * 1000; // 5 minutos en milisegundos
+unsigned long intervalo = delayvalue * 60 * 1000; // 5 minutos en milisegundos
 unsigned long lastMillis = 0;
 bool configRecibida = false;
 
